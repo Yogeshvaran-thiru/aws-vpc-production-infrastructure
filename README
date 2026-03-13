@@ -1,0 +1,216 @@
+# 🔐 SecureVPC-HA-Infrastructure
+
+> *"Hidden in Private Subnets. Guarded by Bastion. Scaled by AWS."*
+
+**Designed & Deployed by Yogeshvaran Thirugnanamurthy**
+
+---
+
+## 📌 Project Overview
+
+A production-ready, highly available, and secure AWS VPC infrastructure built from scratch. This project demonstrates real-world cloud architecture used by companies to run scalable web applications with zero single point of failure.
+
+The infrastructure ensures:
+- 🔒 **Security** — Servers hidden in private subnets, accessible only via Load Balancer
+- ⚡ **High Availability** — Resources spread across 2 Availability Zones
+- 📈 **Auto Scaling** — Automatically adds/removes servers based on CPU usage
+- 🛡️ **Controlled Access** — Bastion Host for secure SSH into private servers
+
+---
+
+## 🏗️ Architecture
+
+```
+                        INTERNET
+                            |
+                    Internet Gateway
+                            |
+                 Application Load Balancer
+                (prod-alb-sg: HTTP 80/443)
+                    /              \
+         us-east-2a                  us-east-2b
+              |                          |
+       PUBLIC SUBNET 1            PUBLIC SUBNET 2
+       10.0.1.0/24                 10.0.2.0/24
+       [NAT Gateway 1]             [NAT Gateway 2]
+       [ALB Node]                  [ALB Node]
+              |                          |
+       PRIVATE SUBNET 1           PRIVATE SUBNET 2
+       10.0.3.0/24                 10.0.4.0/24
+       [EC2 Server 1]  ←ASG→  [EC2 Server 2]
+       
+       BASTION HOST (prod-public-subnet-1)
+       Secure SSH jump server
+```
+
+---
+
+## 🧩 AWS Services Used
+
+| Service | Name | Purpose |
+|---------|------|---------|
+| VPC | `prod-vpc` | Isolated private network (10.0.0.0/16) |
+| Subnets | 4 subnets | 2 public + 2 private across 2 AZs |
+| Internet Gateway | `prod-igw` | Internet access for public subnets |
+| NAT Gateway | `prod-nat-gw-1/2` | Outbound internet for private servers |
+| Route Tables | `prod-public-rt` / `prod-private-rt` | Traffic routing rules |
+| Security Groups | `prod-alb-sg` / `prod-ec2-sg` | Firewall rules |
+| EC2 (Bastion) | `prod-bastion-host` | Secure jump server |
+| Launch Template | `prod-launch-template` | EC2 blueprint for ASG |
+| Auto Scaling Group | `prod-asg` | Auto-manages server count (min:2, max:4) |
+| Load Balancer | `prod-alb` | Distributes traffic across private EC2s |
+| Target Group | `prod-tg` | Health-checked pool of EC2 instances |
+
+---
+
+## 🔒 Security Design
+
+### Security Groups
+| Group | Inbound Rule | Purpose |
+|-------|-------------|---------|
+| `prod-alb-sg` | HTTP 80, HTTPS 443 from 0.0.0.0/0 | ALB accepts public traffic |
+| `prod-ec2-sg` | HTTP 80 from `prod-alb-sg` only | EC2 only reachable via ALB |
+| `prod-ec2-sg` | SSH 22 from My IP | SSH only from trusted IP |
+
+### Network Architecture
+- ✅ EC2 servers have **no public IP** — completely hidden
+- ✅ Only the **Load Balancer** is internet-facing
+- ✅ Private servers access internet via **NAT Gateway** (outbound only)
+- ✅ SSH access only through **Bastion Host**
+
+---
+
+## ⚡ Auto Scaling Configuration
+
+| Setting | Value |
+|---------|-------|
+| Desired capacity | 2 instances |
+| Minimum capacity | 2 instances |
+| Maximum capacity | 4 instances |
+| Scaling policy | Target tracking — CPU at 50% |
+| Health check | EC2 + ELB health checks |
+| Warmup period | 300 seconds |
+
+**How it works:**
+- CPU > 50% → ASG automatically adds servers (up to 4)
+- CPU < 50% → ASG removes extra servers (down to 2)
+- Unhealthy server detected → ASG replaces it automatically
+
+---
+
+## 🗺️ Network Configuration
+
+| Resource | CIDR / AZ | Type |
+|----------|-----------|------|
+| VPC | 10.0.0.0/16 | - |
+| Public Subnet 1 | 10.0.1.0/24 · us-east-2a | Public |
+| Public Subnet 2 | 10.0.2.0/24 · us-east-2b | Public |
+| Private Subnet 1 | 10.0.3.0/24 · us-east-2a | Private |
+| Private Subnet 2 | 10.0.4.0/24 · us-east-2b | Private |
+
+---
+
+## 💻 EC2 User Data Script
+
+The following script is used in the Launch Template to auto-configure EC2 instances:
+
+```bash
+#!/bin/bash
+yum update -y
+yum install -y httpd
+systemctl start httpd
+systemctl enable httpd
+
+EC2_AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone)
+EC2_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+
+cat > /var/www/html/index.html <<EOF
+<!-- Custom dark neon webpage showing Instance ID, AZ, and project info -->
+EOF
+```
+
+---
+
+## 🔄 Traffic Flow
+
+```
+User Request
+    ↓
+Internet Gateway
+    ↓
+Application Load Balancer (public subnet)
+    ↓
+Target Group health check
+    ↓
+EC2 in private subnet (AZ1 or AZ2)
+    ↓
+Response back to user ✅
+
+Private EC2 needs internet (updates):
+    ↓
+NAT Gateway (public subnet)
+    ↓
+Internet (outbound only) 🔒
+```
+
+---
+
+## 🎯 Problems This Architecture Solves
+
+| Problem | Solution |
+|---------|----------|
+| Server crashes | ASG auto-replaces unhealthy instances |
+| Traffic spike | ASG scales up to 4 servers automatically |
+| Direct server attack | Servers in private subnets — no public access |
+| Single AZ failure | Resources in 2 AZs — other AZ keeps running |
+| Overloaded server | ALB distributes traffic evenly |
+| Maintenance access | Bastion Host for secure SSH |
+
+---
+
+## 🌐 Output
+
+After deployment, the Load Balancer DNS provides a live webpage showing:
+- Project name: **SecureVPC-HA-Infrastructure**
+- Live Instance ID
+- Live Availability Zone (changes on refresh — proves load balancing works!)
+- Infrastructure status
+
+---
+
+## 📚 What I Learned
+
+- Designing production-grade VPC architecture on AWS
+- Implementing network segmentation with public/private subnets
+- Configuring Auto Scaling with target tracking policies
+- Setting up Application Load Balancer with health checks
+- Securing infrastructure using layered security groups
+- Using Bastion Host pattern for secure server access
+- High availability design across multiple Availability Zones
+
+---
+
+## 🛠️ Tech Stack
+
+![AWS](https://img.shields.io/badge/AWS-232F3E?style=for-the-badge&logo=amazon-aws&logoColor=white)
+![VPC](https://img.shields.io/badge/VPC-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)
+![EC2](https://img.shields.io/badge/EC2-FF9900?style=for-the-badge&logo=amazon-aws&logoColor=white)
+![Linux](https://img.shields.io/badge/Linux-FCC624?style=for-the-badge&logo=linux&logoColor=black)
+
+---
+
+## 👨‍💻 Author
+
+**Yogeshvaran Thirugnanamurthy**
+
+> Built as part of hands-on AWS Cloud learning journey — inspired by Abhishek Veeramalla's AWS VPC tutorial.
+
+---
+
+## ⚠️ Cost Reminder
+
+If redeploying, remember to delete these resources after testing to avoid charges:
+1. NAT Gateways (most expensive ~$0.09/hr)
+2. Load Balancer
+3. EC2 instances
+4. Release Elastic IPs
